@@ -164,6 +164,41 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	// --- Event handlers for tool-path handoff ---
+	//
+	// WHY IS THIS SO COMPLICATED?
+	//
+	// The /handoff command path is simple: it has ExtensionCommandContext with
+	// ctx.newSession() which does a full agent state reset (agent.reset() +
+	// UI clear + queue reset + event emission). But the tool path only gets
+	// ExtensionContext, which lacks newSession().
+	//
+	// Simpler approaches don't work:
+	// - sendUserMessage("/new") doesn't expand slash commands
+	// - There's no public API to programmatically invoke commands from tool context
+	// - sessionManager.newSession() only switches the session file; it does NOT
+	//   clear agent.state.messages, so the LLM would still see the entire old
+	//   conversation
+	// - We can't call agent.reset() from tool context either
+	//
+	// The solution uses three coordinated event handlers:
+	//
+	// 1. agent_end: Defers the session switch until after the agent loop completes.
+	//    This ensures the tool_result is recorded in the old session first, and
+	//    avoids concurrent _runLoop instances. Uses sessionManager.newSession()
+	//    for the file switch, then setTimeout(() => sendUserMessage()) to start
+	//    the new session in the next macrotask.
+	//
+	// 2. context: Filters pre-handoff messages using a timestamp. Since we can't
+	//    call agent.reset(), old messages remain in agent.state.messages, but the
+	//    context event's transformContext mechanism lets us control what the LLM
+	//    actually sees. This is safe because getContextUsage() uses the last
+	//    assistant's actual usage data (correct after the first response), and
+	//    auto-compaction checks assistant usage tokens rather than the messages
+	//    array length.
+	//
+	// 3. session_switch: Clears the context filter when a proper session switch
+	//    occurs (e.g., /new), since those fully reset agent.state.messages and
+	//    our filter would incorrectly hide the new session's messages.
 
 	// After the agent loop ends, perform the deferred session switch.
 	// At this point:
