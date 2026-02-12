@@ -21,6 +21,12 @@
 - **web-search** - Search the web via Jina Search API
 - **visit-webpage** - Extract webpage content as markdown (using Jina API), or download images
 
+### Amp Skill Compatibility
+- Auto-loads Amp skill directories when present:
+  - `~/.config/agents/skills`
+  - `~/.config/amp/skills`
+  - `.agents/skills` (project-local)
+
 ## Installation
 
 ### Option A: Install from npm (recommended)
@@ -120,6 +126,7 @@ Notes:
 
 | Component | Type | Description |
 |-----------|------|-------------|
+| [amp-skills](extensions/amp-skills.ts) | Extension | Adds Amp-compatible skill discovery paths (`~/.config/agents/skills`, `~/.config/amp/skills`, `.agents/skills`) |
 | [handoff](extensions/handoff.ts) | Extension | `/handoff` command + `handoff` tool for AI-powered context transfer |
 | [modes](extensions/modes.ts) | Extension | Prompt mode manager with model/thinking/color presets, editor border overlay, and shortcuts |
 | [session-query](extensions/session-query.ts) | Extension | `session_query` tool for querying parent sessions |
