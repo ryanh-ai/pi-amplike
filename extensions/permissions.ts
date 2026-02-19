@@ -345,44 +345,37 @@ export default function (pi: ExtensionAPI) {
 
 		const allowlist = settings["amp.commands.allowlist"] ?? [];
 		const userRules = settings["amp.permissions"] ?? [];
-
-		// Allowlist: auto-allow by base command name (after stripping cd prefix)
 		const baseCmd = getBaseCommand(command);
-		if (allowlist.includes(baseCmd)) {
-			return undefined;
-		}
 
-		// Evaluate: user rules first, then built-in rules
-		const allRules = [...userRules, ...BUILTIN_PERMISSIONS];
+		const NO_MATCH = Symbol();
+		type RuleOutcome = typeof NO_MATCH | undefined | { block: true; reason: string };
 
-		for (const rule of allRules) {
-			if (!ruleAppliesToBash(rule)) continue;
-
-			// A rule with no matches applies to all commands
-			const cmdPattern = rule.matches?.cmd;
-			if (cmdPattern !== undefined && !matchesCmd(cmdPattern, strippedCommand)) continue;
-
-			if (rule.action === "allow") {
-				return undefined;
-			}
-
-			if (rule.action === "deny" || rule.action === "reject") {
-				return { block: true, reason: "Denied by amp permissions rule" };
-			}
-
-			if (rule.action === "ask") {
-				if (!ctx.hasUI) {
-					return { block: true, reason: "Command requires confirmation (no UI available)" };
+		async function applyRules(rules: AmpPermission[]): Promise<RuleOutcome> {
+			for (const rule of rules) {
+				if (!ruleAppliesToBash(rule)) continue;
+				const cmdPattern = rule.matches?.cmd;
+				if (cmdPattern !== undefined && !matchesCmd(cmdPattern, strippedCommand)) continue;
+				// Rule matched — resolve action
+				if (rule.action === "allow") return undefined;
+				if (rule.action === "deny" || rule.action === "reject") return { block: true, reason: "Denied by amp permissions" };
+				if (rule.action === "ask") {
+					if (!ctx.hasUI) return { block: true, reason: "Command requires confirmation (no UI available)" };
+					const choice = await ctx.ui.select(`⚠️  Permission required:\n\n  ${command}\n\nAllow?`, ["Yes", "No"]);
+					return choice === "Yes" ? undefined : { block: true, reason: "Blocked by user" };
 				}
-				const choice = await ctx.ui.select(
-					`⚠️  Permission required:\n\n  ${command}\n\nAllow?`,
-					["Yes", "No"],
-				);
-				return choice === "Yes" ? undefined : { block: true, reason: "Blocked by user" };
 			}
+			return NO_MATCH;
 		}
 
-		// No rule matched — allow by default
-		return undefined;
+		// User rules first (take precedence over allowlist + built-ins)
+		const userResult = await applyRules(userRules);
+		if (userResult !== NO_MATCH) return userResult;
+
+		// Allowlist: after user rules, before built-ins
+		if (allowlist.includes(baseCmd)) return undefined;
+
+		// Built-in rules as final fallback
+		const builtinResult = await applyRules(BUILTIN_PERMISSIONS);
+		return builtinResult === NO_MATCH ? undefined : builtinResult;
 	});
 }
