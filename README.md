@@ -107,6 +107,8 @@ The permissions extension enforces Amp-style bash command permissions automatica
 - **enabled** (default): Amp permission rules from `~/.config/amp/settings.json` are enforced
 - **yolo**: All bash commands are allowed without any checks; `YOLO mode` shown in status bar
 
+The selected mode is persisted in `~/.pi/agent/amplike.json` and restored on the next pi invocation.
+
 ### Prompt Modes
 
 ```text
@@ -138,7 +140,7 @@ Notes:
 | Component | Type | Description |
 |-----------|------|-------------|
 | [amp-skills](extensions/amp-skills.ts) | Extension | Adds Amp-compatible skill discovery paths (`~/.config/agents/skills`, `~/.config/amp/skills`, `.agents/skills`) |
-| [permissions](extensions/permissions.ts) | Extension | Reads `amp.commands.allowlist` and `amp.permissions` from `~/.config/amp/settings.json` (and `.agents/settings.json`) and intercepts bash tool calls accordingly; `/permissions` toggles between `enabled` and `yolo` (all commands allowed, status bar indicator) |
+| [permissions](extensions/permissions.ts) | Extension | Reads `amp.commands.allowlist` and `amp.permissions` from `~/.config/amp/settings.json` (and `.agents/settings.json`) and intercepts bash tool calls accordingly; `/permissions` toggles between `enabled` and `yolo` (all commands allowed, status bar indicator, persisted in `~/.pi/agent/amplike.json`) |
 | [handoff](extensions/handoff.ts) | Extension | `/handoff` command + `handoff` tool for AI-powered context transfer |
 | [modes](extensions/modes.ts) | Extension | Prompt mode manager with model/thinking/color presets, editor border overlay, and shortcuts |
 | [session-query](extensions/session-query.ts) | Extension | `session_query` tool for querying parent sessions |

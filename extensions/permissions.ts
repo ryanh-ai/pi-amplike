@@ -23,12 +23,16 @@
  *       <glob>        — * wildcards supported; matched against the full command
  *     Actions: "allow" | "ask" | "deny" | "reject"
  *     Non-Bash rules are loaded and warned about, but otherwise ignored.
+ *
+ * Extension settings (~/.pi/agent/amplike.json):
+ *   { "permissions": { "mode": "enabled" | "yolo" } }
+ *   Persisted by the /permissions command across pi invocations.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 interface AmpPermission {
 	tool: string;
@@ -320,8 +324,34 @@ function ruleAppliesToBash(rule: AmpPermission): boolean {
 
 const GLOBAL_SETTINGS = join(homedir(), ".config", "amp", "settings.json");
 
+// Extension settings file — follows the ~/.pi/agent/<name>.json convention
+const AMPLIKE_SETTINGS_PATH = join(homedir(), ".pi", "agent", "amplike.json");
+
+interface AmplikeSettings {
+	permissions?: {
+		mode?: "enabled" | "yolo";
+	};
+}
+
+function loadAmplikeSettings(): AmplikeSettings {
+	try {
+		return JSON.parse(readFileSync(AMPLIKE_SETTINGS_PATH, "utf8")) as AmplikeSettings;
+	} catch {
+		return {};
+	}
+}
+
+function saveAmplikeSettings(settings: AmplikeSettings): void {
+	const dir = dirname(AMPLIKE_SETTINGS_PATH);
+	mkdirSync(dir, { recursive: true });
+	const tmp = `${AMPLIKE_SETTINGS_PATH}.tmp.${process.pid}`;
+	writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n", "utf8");
+	renameSync(tmp, AMPLIKE_SETTINGS_PATH);
+}
+
 // Permission mode: "enabled" (default) or "yolo" (all commands allowed without checks)
-let permissionMode: "enabled" | "yolo" = "enabled";
+// Loaded from amplike.json on startup; persisted on /permissions toggle.
+let permissionMode: "enabled" | "yolo" = loadAmplikeSettings().permissions?.mode ?? "enabled";
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("permissions", {
@@ -336,10 +366,17 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.setStatus("permissions", undefined);
 				ctx.ui.notify("Permissions: switched to enabled mode — amp permission rules active", "info");
 			}
+			const current = loadAmplikeSettings();
+			saveAmplikeSettings({ ...current, permissions: { ...current.permissions, mode: permissionMode } });
 		},
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		// Restore status bar if yolo mode was persisted from a previous session
+		if (permissionMode === "yolo") {
+			ctx.ui.setStatus("permissions", "YOLO mode");
+		}
+
 		// Warn about any non-Bash permission rules in the user's config
 		const settings = loadSettings([GLOBAL_SETTINGS, resolve(ctx.cwd, ".agents", "settings.json")]);
 		const nonBashRules = (settings["amp.permissions"] ?? []).filter((r) => !ruleAppliesToBash(r));
@@ -381,8 +418,15 @@ export default function (pi: ExtensionAPI) {
 				if (rule.action === "deny" || rule.action === "reject") return { block: true, reason: "Denied by amp permissions" };
 				if (rule.action === "ask") {
 					if (!ctx.hasUI) return { block: true, reason: "Command requires confirmation (no UI available)" };
-					const choice = await ctx.ui.select(`⚠️  Permission required:\n\n  ${command}\n\nAllow?`, ["Yes", "No"]);
-					return choice === "Yes" ? undefined : { block: true, reason: "Blocked by user" };
+					const choice = await ctx.ui.select(
+						`⚠️  Permission required:\n\n  ${command}\n\nAllow? (Use /permissions to toggle YOLO mode and skip these checks)`,
+						["Yes", "No"],
+					);
+					if (choice !== "Yes") {
+						ctx.abort();
+						return { block: true, reason: "Blocked by user" };
+					}
+					return undefined;
 				}
 			}
 			return NO_MATCH;
