@@ -81,7 +81,21 @@ async function performHandoff(
 		loader.onAbort = () => done(null);
 
 		const doGenerate = async () => {
-			const apiKey = await ctx.modelRegistry.getApiKey(ctx.model!);
+			// getApiKey() was renamed to getApiKeyAndHeaders() in pi 0.66+
+			const registry = ctx.modelRegistry as any;
+			let apiKey: string | undefined;
+			let headers: Record<string, string> | undefined;
+			if (typeof registry.getApiKeyAndHeaders === 'function') {
+				const result = await registry.getApiKeyAndHeaders(ctx.model!);
+				if (!result.ok) throw new Error(result.error);
+				apiKey = result.apiKey;
+				headers = result.headers;
+			} else if (typeof registry.getApiKey === 'function') {
+				apiKey = await registry.getApiKey(ctx.model!);
+			}
+			if (!apiKey) {
+				throw new Error('Unable to resolve API key for model.');
+			}
 
 			const userMessage: Message = {
 				role: "user",
@@ -97,7 +111,7 @@ async function performHandoff(
 			const response = await complete(
 				ctx.model!,
 				{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-				{ apiKey, signal: loader.signal },
+				{ apiKey, headers, signal: loader.signal },
 			);
 
 			if (response.stopReason === "aborted") {
@@ -137,7 +151,10 @@ async function performHandoff(
 		const cmdCtx = ctx as ExtensionCommandContext;
 		const newSessionResult = await cmdCtx.newSession({ parentSession: currentSessionFile });
 		if (newSessionResult.cancelled) return;
-		pi.sendUserMessage(finalPrompt);
+		// Use setEditorText so the new session is fully ready before sending.
+		// sendUserMessage can fire before the session switch settles.
+		ctx.ui.setEditorText(finalPrompt);
+		ctx.ui.notify("Handoff ready — press Enter to send.", "info");
 	} else {
 		// Tool path: defer session switch to agent_end handler.
 		// We can't call ctx.newSession() from tool context (only ExtensionCommandContext
