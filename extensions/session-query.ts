@@ -133,7 +133,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			try {
-				const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
+				const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+				if (!auth.ok) {
+					return errorResult(`Error resolving API key: ${auth.error}`);
+				}
+				const apiKey = auth.apiKey;
 
 				const userMessage: Message = {
 					role: "user",
@@ -149,7 +153,7 @@ export default function (pi: ExtensionAPI) {
 				const response = await complete(
 					ctx.model,
 					{ systemPrompt: QUERY_SYSTEM_PROMPT, messages: [userMessage] },
-					{ apiKey, signal },
+					{ apiKey, signal, headers: auth.headers },
 				);
 
 				if (response.stopReason === "aborted") {
