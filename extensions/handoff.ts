@@ -147,14 +147,20 @@ async function performHandoff(
 	}
 
 	if (!fromTool && "newSession" in ctx) {
-		// Command path: full reset via ctx.newSession()
+		// Command path: full reset via ctx.newSession(). Any session-bound work
+		// after a successful replacement must use the replacement-session ctx;
+		// the original ctx/pi are stale once newSession() completes.
 		const cmdCtx = ctx as ExtensionCommandContext;
-		const newSessionResult = await cmdCtx.newSession({ parentSession: currentSessionFile });
-		if (newSessionResult.cancelled) return;
-		// Use setEditorText so the new session is fully ready before sending.
-		// sendUserMessage can fire before the session switch settles.
-		ctx.ui.setEditorText(finalPrompt);
-		ctx.ui.notify("Handoff ready — press Enter to send.", "info");
+		const newSessionResult = await cmdCtx.newSession({
+			parentSession: currentSessionFile,
+			withSession: async (replacementCtx) => {
+				// Use setEditorText so the new session is fully ready before sending.
+				// sendUserMessage can fire before the session switch settles.
+				replacementCtx.ui.setEditorText(finalPrompt);
+				replacementCtx.ui.notify("Handoff ready — press Enter to send.", "info");
+			},
+		});
+		if (newSessionResult.cancelled) return "New session cancelled.";
 	} else {
 		// Tool path: defer session switch to agent_end handler.
 		// We can't call ctx.newSession() from tool context (only ExtensionCommandContext
